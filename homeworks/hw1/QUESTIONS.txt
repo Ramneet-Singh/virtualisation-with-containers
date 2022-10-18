@@ -1,0 +1,261 @@
+                           _________________
+
+                            COV 882 HW1 QUESTIONS
+                           _________________
+
+
+Write your answers to the questions below directly in this text file.
+
+
+PROBLEM 1 `syscall_time.c`
+==================
+
+Compile and run the program in `syscall_time.c' with different arguments. Time its running time with different arguments with the `time' command. Explain the difference in time.
+
+ANSWER:
+
+Running the program with argument 1 results in an elapsed (real) time of 0.005 seconds. This means a per-call time for `getvalue()` of approximately 5ns. Running it with argument 2 results in an elapsed time of 1.217 seconds. This means a per-call time for `printf("%d", getppid())` of approximately 1.2 microseconds.
+
+The difference is due to the overhead involved in executing system calls. In the first case, the program calls a user-defined C function (which doesn't invoke any system calls). In the second case, the program calls the `getppid()` system call and then calls the `printf()` library function. The `printf()` function invokes the `write()` system call to write to the terminal. These system calls involve a procedure to switch between the user mode and the kernel mode, and transfer information like arguments and return values between user and kernel space. So they result in considerable overhead as compared to calling other C functions.
+
+PROBLEM 2  `hello.c'
+=====================
+
+Consider the following code snippet
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+int main(int argc, char *argv[]) {
+  int fd1 = open("hw1f1", O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+  int fd2 = dup(fd1);
+  int fd3 = open("hw1f1", O_RDWR);
+  int fd4 = open("hw1f1", O_WRONLY | O_APPEND);
+  write(fd1, "Hello,", 6); // 1
+  write(fd2, " world", 6); // 2
+  lseek(fd2, 0, SEEK_SET);
+  write(fd4, " Hej da!", 8); // 3
+  write(fd1, "HELLO,", 6); // 4
+  write(fd3, "Gidday", 6); // 5
+  lseek(fd4, 0, SEEK_SET);
+  write(fd4, " Var ar vi?", 11); // 6
+}
+
+A.  Draw a simple sketch showing the file descriptor table, open file table, i-node table, and their relations, as they would be just prior to the program terminating.
+
+B.  Estimate, what would be the contents of file hw1f1 after this code snippet runs? Run and verify.
+
+C.  Why is the output not (i) HELLO, world Hej da! Var ar vi?, or this (ii) Hej da! Var ar vi? or this (iii) Namaskar!!!! Hej da! Var ar vi?
+
+D.  The author of this code did not check their return codes after opens, dup, lseeks, and writes! Rewrite the code accounting for error values. Please read the man pages to see what information may be returned through errno.
+
+ANSWER A (need screen width of 116 to see the image):
+
++---------------------+
+|     stdin = 0       |                +----------|----------|---------|----|-----+
+|---------------------|                |   File   |  Offset  |  Usage  | ...|inode|
+|     stdout = 1      |                |          |          |  Count  |    |link |              +-------------+
+|---------------------|                |-------------------------------------------              |  file type  |
+|     stderr = 2      |          |------  "hw1f1" |   6      |    2    |    |     |-----|---|--- |-------------|
+|---------------------|          |     |------------------------------------------|     |   |    |  file size  |
+|       fd 1 = 3      --------|--+ |---- "hw1f1"  |    6     |   1     |    |     |-----+   |    |-------------|
+|---------------------|       |    |   |------------------------------------------|         |    | # hard links|
+|       fd 2 = 4      --------+    |   |          |          |         |    |     |         |    |-------------|
+|---------------------|            | |-- "hw1f1"  |   31     |    1    |    |     |---------+    |   ...       |
+|       fd 3 = 5      -------------+ | +----------|----------|---------|----|-----+              +-------------+
+|---------------------|              |                    Open File                                  i-node
+|        fd 4 = 6     |--------------+                      Table                                    Table entry
++---------------------+                                                                              for "hw1f1"
+                                                                                                     (All open files
+                                                                                                     point to this)
+    File Descriptor
+        Table
+
+Note that the open file description also contains other things like the access mode in which the file is opened. fd1 and fd2 point to the same open file description. All the open file descriptions shown point to the same entry in the i-node table, namely the entry for file "hw1f1".
+
+ANSWER B:
+
+Using the numbering done in comments, the contents of the file after different calls to write are:
+
+After 1: "Hello,"
+After 2: "Hello, world"
+After 3: "Hello, world Hej da!"
+After 4: "HELLO, world Hej da!"
+After 5: "Gidday world Hej da!"
+After 6: "Gidday world Hej da! Var ar vi?"
+
+ANSWER C:
+
+(i) This is because the "HELLO" written by call number 4 using fd1 is overwritten by the "Gidday" written by call number 5 using fd3. When fd3 is opened, its offset is set to 0. Since it is not opened with the "O_APPEND" flag specified, when it writes "Gidday", it begins writing from the start of the file, overwriting "HELLO".
+
+(ii) This is because fd4 was opened with "O_APPEND" specified in its flags bitmask field. Whenever a write(fd4,...) call is made, its offset is set to the end-of-file and then the specified output is written to the file. So when it writes " Hej da!", it appends to the already written "Hello, world" and similarly, when it writes " Var ar vi?", it appends to the already written "Gidday world Hej da!". Note that the lseek makes no difference since on every write() call the offset for fd4 is changed to end-of-file.
+
+(iii) This is because fd1 is opened with the "O_TRUNC" flag specified. If "Namaskar!!!!" was written in the file already, it would have been destroyed since the file is truncated to zero length.
+
+ANSWER D:
+
+See file `q2.c`.
+
+PROBLEM 3 `fork_list.c'
+=========================
+
+A. Compile and run the program in `fork_list.c'. Run the program
+   several times.
+	(i) Show the output of a typical run below.
+        (ii) Is the output ordered or disordered with respect to the "My process number is..." statements? Why?
+
+
+B. How many parents and children are there in this program?
+   Use the output of a typical run to mark the parents and the children?
+   Irrespective of the run, what is the order of the parent process(es)?
+
+
+C. Now, ensure that the output is ordered. Submit your completed code.
+
+ANSWER A:
+
+(i) My process number is 8, my pid is 75177
+    My process number is 1, my pid is 75179---|
+    My process number is 2, my pid is 75180   |
+    My process number is 0, my pid is 75178   |
+    My process number is 3, my pid is 75181   |
+    My process number is 6, my pid is 75184   |-- The order of these lines is indeterminate, appears different across different runs.
+    My process number is 5, my pid is 75183   |
+    My process number is 4, my pid is 75182   |
+    My process number is 7, my pid is 75185---|
+
+(ii) The output is disordered with respect to the "My process number is..." statements because the forked children may be scheduled in any order by the kernel scheduler. Each of the forked children is a separate process, and these processes may execute non-deterministically in any interleaved manner. The parent can also, in general, be scheduled in any order with respect to its children. However in the specific Linux kernel version on which I ran this, the parent is always scheduled first. This is explained in more detail in Answer B.
+
+ANSWER B:
+
+There is one parent and 8 children. The parent forks 8 children in a for loop, and each of the forked children break out of the for loop after they start executing.
+
+My process number is 8, my pid is 75177 -- PARENT
+My process number is 1, my pid is 75179 -- CHILD of Process 75177
+My process number is 2, my pid is 75180 -- CHILD of Process 75177
+My process number is 0, my pid is 75178 -- CHILD of Process 75177
+My process number is 3, my pid is 75181 -- CHILD of Process 75177
+My process number is 6, my pid is 75184 -- CHILD of Process 75177
+My process number is 5, my pid is 75183 -- CHILD of Process 75177
+My process number is 4, my pid is 75182 -- CHILD of Process 75177
+My process number is 7, my pid is 75185 -- CHILD of Process 75177
+
+Quoting from TLPI,
+
+"After a fork(), it is indeterminate which process - the parent or the child - next has access to the CPU.(On a multiprocessor system, they may both simultaneously get access to a CPU.)"
+...
+"since Linux 2.6.32, it is once more the parent that is, by default, run first after a fork(). This default can be changed by assigning a nonzero value to the Linux-specific /proc/sys/kernel/sched_child_runs_first file."
+
+So the Unix interface doesn't specify whether the parent is scheduled first or the child, and this may differ across different Unix implementations and even different Linux kernel versions. But since the baadal vm on which I ran this has a single CPU, and the Linux kernel being used schedules the parent first by default (the /proc/sys/kernel/sched_child_runs_first file had 0 written so the default was used), the parent was always scheduled first on all runs that I observed.
+
+ANSWER C:
+
+See file `q3.c`. I have made the parent wait for one child to finish before forking another one.
+
+PROBLEM 4 `fork'
+======================
+
+How many processes will a program having the following statements fork :
+```
+fork()
+fork()
+fork()
+```
+
+ANSWER:
+
+The execution of the program will look like this:
+
+    |            P____________             -- STATEMENT 1 executed
+TIME|           /             \
+    |          P____          C1____       -- STATEMENT 2 executed
+   \|/        /     \        /      \
+             P      C2      C1      C5     -- STATEMENT 3 executed
+            / \    /  \    /  \    /  \
+           P  C3  C2  C4  C1  C6  C5  C7
+
+Eight processes will be created in total, including the original parent process plus seven other processes. First the parent will fork child C1, then both the parent and C1 will fork one child each (C2 and C5). Finally, P,C2,C1 and C5 will all fork one child each (C3,C4,C6 and C7).
+
+PROBLEM 5 `child_exec.c'
+=======================
+
+Currently `child_exec.c' does not reach the bottom statement shown below:
+   ,----
+   |   printf("------------------\n");
+   |   printf("Child is now finished\n");
+   `----
+ How will you correct this behavior?
+ Submit your new code.
+
+See file `q5.c`. Instead of directly running execvp(), I have forked a child process which runs execvp(). The parent waits (in a blocking manner) for the child to finish and gets its termination status. After that, the above two printf() statements are executed by the parent.
+
+PROBLEM 6 `wait.c'
+=======================
+
+
+A.  Examine the two C files print `wait.c' and `sleep_print.c'.
+    Provide a brief demonstration of what the programs accomplish.
+
+
+B. This time alter the code so that when the child has completed execution, the
+   program breaks out of the loop, and the program ends normally. Additionally,
+   the exit status of the child process is printed when it finishes.
+   Submit your new code.
+
+
+C. The current call to `waitpid()' blocks, pausing execution of the
+  parent process until the child finishes. What option should you pass to
+  `waitpid()' that allows for a non-blocking wait.
+   Submit sample behavior of your new program and your new code.
+
+ANSWER A:
+
+`wait.c`
+
+It forks a child process and runs the command `./sleep_print 5 "CHILD: Awake and Done"` using execvp(). Then, it goes into an infinite loop. In the first iteration of the loop, it prints a prompt for the user, gets input, prints the same input after "Entered text: ", prints "Waiting" and then calls waitpid(). Since it calls waitpid() with options set to 0, this is a blocking wait and the process is suspended until the child process terminates.
+
+After the child process has terminated, the program prints "CHILD FINISHED: ". Then it moves to the second iteration of the while loop, prints a prompt, gets input, prints the same input, prints "Waiting". Now the call to waitpid() immediately returns -1 since there are no children to wait for. So it prints "Child not finished: wait returned -1". Then the program moves to the third iteration of the while loop, and the same behaviour as the second iteration continues infinitely.
+
+`sleep_print.c`
+
+It takes as arguments: `<secs> <message word 1> ... <message word n>`, sleeps for secs seconds and then prints the words of the message separated by spaces. The program calls the system call nanosleep() which suspends the execution of the calling thread until the time specified in `tm` has elapsed (or until a signal is delivered, but that doesn't happen for this case). The second argument for nanosleep() takes a struct timespec* in which the remaining time is stored in case a signal interrupted the sleep. But again, in this case, we don't handle that so we pass NULL.
+
+In the tm struct, we specify the number of nanoseconds to be 0 and the number of seconds to be secs. Therefore the program sleeps for secs seconds. On returning from the sleep, it iterates over the rest of its arguments (which would be the words of the message) and prints them followed by spaces. It returns as its exit status the number of seconds it slept for.
+
+ANSWER B:
+
+See file `q6b.c`. After the call to waitpid(), I check the status with WIFEXITED(). If true, I print that the child terminated with exit status WEXITSTATUS(status), otherwise I print that the child terminated abnormally. After this, I break out of the while loop.
+
+ANSWER C:
+
+See file `q6c.c`. I passed the WNOHANG option to waitpid() to make the wait non-blocking. If the wait returns the child's pid, I print that the child has finished and break out of the loop. Otherwise, I print that the child has not finished, print the return value of wait and then move to the next iteration of the while loop.
+
+The behaviour now is, the program prompts the user for input, prints that same input, then prints "Waiting" and calls waitpid(), which returns immediately. Until the child has finished, it returns 0, so the program prints "Child not finished" and moves to the next iteration, prompting the user again for input. When the child has finished and the program calls waitpid(), it returns the child's pid, and the program prints "CHILD FINISHED: " and breaks out of the while loop. The major difference from before is that multiple prompts may appear before the child finishes since waitpid() with the WNOHANG option doesn't suspend the process.
+
+Sample output:
+
+Type text then press enter to check on child:
+>> hello1
+Entered text: 'hello1'
+Waiting
+Child not finished: wait returned 0
+
+Type text then press enter to check on child:
+>> hello2
+Entered text: 'hello2'
+Waiting
+Child not finished: wait returned 0
+
+Type text then press enter to check on child:
+>> CHILD: Awake and Done
+hello3
+Entered text: 'hello3'
+Waiting
+CHILD FINISHED: terminated with exit status 5
+Exiting wait_loop
+
+One can see that after the third prompt was printed, the child printed its output and finished. When I typed "hello3" after that and pressed enter, the program printed the next two lines and then called waitpid(). Since the child had finished, it returned the child's pid, which resulted in the program printing "CHILD FINISHED: " and breaking out of the while loop.
