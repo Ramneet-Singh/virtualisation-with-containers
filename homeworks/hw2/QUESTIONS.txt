@@ -14,6 +14,8 @@ A. Assume in each of the following cases that the initial set of process user ID
 
 a) setuid(1000); setuid(0);
 
+ANSWER:
+
 After setuid(1000):
     real=1000 effective=1000 saved=1000
 
@@ -24,6 +26,8 @@ setuid(0) will return -1 indicating an error since once all the user ids are set
 
 b) seteuid(1000); setuid(0);
 
+ANSWER:
+
 After seteuid(1000):
     real=1000 effective=1000 saved=0
 
@@ -32,6 +36,8 @@ After setuid(0):
 
 c) seteuid(2000); setuid(1000);
 
+ANSWER:
+
 After seteuid(2000):
     real=1000 effective=2000 saved=0
 
@@ -39,6 +45,8 @@ After setuid(1000):
     real=1000 effective=1000 saved=0
 
 d) seteuid(600); setuid(1000); setuid(0);
+
+ANSWER:
 
 After seteuid(600):
     real=1000 effective=600 saved=0
@@ -75,10 +83,14 @@ Since the system() call uses /bin/sh (which links to zsh) to execute the command
 (b) If q = 1 in the program, the program will use execve() to invoke the command.
 Do your attacks in task (a) still work? Please describe and explain your observations.
 
+ANSWER:
+
 The attack in task (a) will not work, because execve() does not execute the shell /bin/sh. Instead, it directly executes the /bin/cat program giving it the argument argv[1]. So if we set argv[1]="file; rm file", "/bin/cat file;rm file" will be run directly with root privileges, and the cat program will complain that there is no file named "file; rm file".
 
 C. To be more secure, Set-UID programs usually call setuid() system call to permanently relinquish their root privileges. However, sometimes, this is not enough. Compile the program 'relinquish.c', and make the program a set-root-uid program. Run it in a normal user account, and describe what you
 have observed. Will the file /etc/banal be modified? Please explain your observation.
+
+ANSWER:
 
 Yes, the file /etc/banal will be modified. This is because the program does not close the file descriptor (which has opened a privileged file) before relinquishing its privilege and transferring control to malicious code. Permissions for opening a file are only checked when open() is called. After that, even if you relinquish privilege, the fact that you have a valid file descriptor is enough to enable you to read/write from that file. Since the malicious code has a valid file descriptor fd pointing to /etc/banal, it can write to that file.
 
