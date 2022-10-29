@@ -53,3 +53,20 @@
 1. Do you have access to si?
 2. What is your identity? Guest 1 or Guest 2?
 3. What is the action E'? Do you have the credentials/privileges to make that action?
+
+Process --syscall--> Function --Privilege--> Resource
+            /|\                /|\
+             |                  |
+             |                  |
+            Two Mechanisms for Isolation
+
+# Privilege
+
+- Views
+- Permissions
+- Credentials
+- Capabilities
+
+- Real ID: Inherited from parent process
+- Effective ID: Governing the permissions of the process. Can be changed using setuid bit on files or syscalls.
+- Saved Set ID: For EID->RID Conversion.
