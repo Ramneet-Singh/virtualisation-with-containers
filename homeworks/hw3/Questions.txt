@@ -1,0 +1,95 @@
+                           ______________________
+
+                            COV 882 HW3 QUESTIONS
+                           ______________________
+
+Necessary programs for this HW are in U3-programs.tar
+
+PROBLEM 1 'unshare'
+=========================
+
+Write a program ( name it unshareA.c) that
+
+(i) creates a new UTS namespace using `unshare' system call,
+(ii) set its hostname with sethostname,
+(iii) print its hostname with gethostname,
+(iv) finally, enter an infinite loop such that it does not terminate until interrupted, allowing the namespace to remain active.
+(v) With the unshareA program running, open a new terminal window, and issue the hostname command.
+Is your machine hostname different? Why or why not?
+
+Submit unshareA.c and screenshots of both the different hostnames. Note screenshot should also display the output of the `date' command.
+
+ANSWER:
+
+See files `unshareA.c`, `screenshot-1.png`, `screenshot-2.png` in `q1` folder. The compiled unshareA binary needs the CAP_SYS_ADMIN capability to be executed by an unprivileged user. My machine hostname is different ("baadalvm" as opposed to "maverick-new" printed by unshareA) since "maverick-new" is the hostname of a different UTS namespace than the initial one.
+
+PROBLEM 2 'setns'
+=========================
+
+(i) Copy the above program and modify it as follows: After the call to unshare(), but before calling sethostname(), print its PID to the terminal. Call this program unshareA1.c
+
+(ii) Then write another program (call it setnsB.c) that takes two command-line arguments. The first should be an integer that specifies a PID. The program should attempt to open() the corresponding /proc/PID/ns/uts file (read only), then join the corresponding namespace with the setns() system call. The second command line argument should be a command to run the shell.
+
+
+Create the new namespace and print the PID.
+
+In another terminal window, compile and run the setnsB program, which joins an existing namespace and launch a shell in the new namespace (e.g. by passing /bin/bash as the second command-line argument). In that shell, issue the hostname command to verify that it is, indeed, in the UTS namespace created by unshareA1 program.
+
+
+As the answer to this exercise, please submit unshareA1.c and setnsB.c and take a screenshot to show the output of hostname command from both programs.
+Note screenshot should also display the output of the `date' command.
+
+ANSWER:
+
+See files `unshareA1.c`, `setnsB.c`, `screenshot-1.png`, `screenshot-2.png` in `q2` folder.
+
+PROBLEM 3 'PID namespace'
+=========================
+
+ Write a recursive program `nestedPID.c' that creates 'n' different nested PID namespaces, where 'n' is an argument to the program.
+ Show that a process has different PIDs in each of the namespaces in which it is visible
+ Within each namespace fork a child that does busy work. Make the innermost PID namespace sleep for 100 seconds.
+ Then programmatically sends signals from outer namespace to kill each each namespace.
+
+Experiment and explore how large n can be. Report the n value that you obtain from your system.
+
+Note: to accomplish this problem read on the following system calls ioctl(fd, NS_GET_PARENT) or ioctl_ns(2) to discover parental relationships.
+
+ANSWER:
+
+See file `q3/nestedPID.c`. In each new nested PID namespace, a corresponding /proc{level} filesystem is mounted, the contents of these can be inspected to see that each process is visible in the PID namespace which it is a part of, and also in its ancestor namespaces with different PIDs. Within each namespace, a child running "sleep infinity" is forked, and the innermost namespace sleeps for 100 seconds. After 100 seconds, the outer namespace sends a kill signal to the child, i.e., the init process in the new PID namespace. This kills all the processes in that namespace.
+
+The maximum nesting depth for PID namespaces on my system is 32.
+
+Reference: https://lwn.net/Articles/531419/
+
+PROBLEM 4 'user namespaces'
+===========================
+
+Combine the functionality of demo_userns.c, demo_pid_namespace, and demo_uts_namespace program to create a new program which initiates a child in new
+user, UTS, and PID namespaces. Call this program test_namespace.c
+
+
+In this new test_namespace.c program establish UID and GID mappings to the root user.
+Note mappings are established by writing to /proc/PID/uid_map and gid_map files.
+
+After entering the new namespace and sleeping for 5 seconds, as a root user exec the simple_init program.
+In your new container run the commands id -u and id -g to see your effective user and group IDs within the user namespace.
+
+Then create a few files in this container. Perform ls -l from within the container and outside it.
+What ownership do you see and why?
+
+From the shell provided by simple_init, issue the command:
+
+hostname <newhostname>
+
+to create a new hostname for your container. Then, issue the hostname command to verify that the new hostname was applied.
+In another terminal window, issue the hostname command to verify that the original hostname was not affected in the parent namespace.
+
+Submit the combined test_namespace.c program and screenshot of 'ps' and 'ls -l' commands.
+
+ANSWER:
+
+See files `test_namespace.c`, `screenshot-1.png`, `screenshot-2.png` in `q4` folder. From within the container, the files are owned by root (which has a uid of 0) and outside the container, the files are owned by baadalvm (which has a uid of 1000). This is because the process that created the file (simple_init) has different user ids inside and outside the user namespace which it is a part of. Id 0 inside the user namespace is mapped to id 1000 in its parent. Thus when we run `ls -l` from the parent, we see 1000 uid and from the container, we see 0 uid.
+
+The screenshot-1 shows that the pid in the initial pid namespace of simple_init is 151625. This is confirmed by the output of the pstree -p command in screenshot-2. Then id -u and id -g are run to see that the effective user and group ids are 0. Then two new files are created and ls -l run in both the container (screenshot-1) and a new terminal (screenshot-2). Then the hostname is changed in screenshot-1, the change is verified and it is shown in screenshot-2 that the change had no effect on the hostname in the initial UTS namespace.

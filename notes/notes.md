@@ -70,3 +70,8 @@ Process --syscall--> Function --Privilege--> Resource
 - Real ID: Inherited from parent process
 - Effective ID: Governing the permissions of the process. Can be changed using setuid bit on files or syscalls.
 - Saved Set ID: For EID->RID Conversion.
+
+# Why bind mounts?
+
+- chroot jail. Rather than copying directories like /lib, simply create bind mounts for these directories within the jail.
+
