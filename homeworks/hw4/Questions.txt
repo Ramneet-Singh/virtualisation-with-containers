@@ -1,0 +1,342 @@
+                           ______________________
+
+                            COV 882 HW4 QUESTIONS
+                           ______________________
+
+Necessary programs for this HW are in U3-programs.tar
+
+PROBLEM 1 'mini container'
+==========================
+
+A. Launch a process in a new PID namespace. In the new namespace, mount the proc pseudo-filesystem for its PID namespace without affecting the mount visible to processes in the host PID namespace.
+
+For this you will need to determine the mount state of the /proc filesystem in the root namespace and set the propagation type accordingly. Show how you determined the mount state of the /proc filesystem and the propagation type.
+
+Mount the proc pseudo-filesystem in the (i) /tmp/foo directory and in the (ii) /proc directory. Contrast the behavior of namespaces when proc is mounted in (i) and (ii). You may use lsns and explain the difference in output.
+
+ANSWER
+==========================
+
+To determine the mount state and propagation type, we can either do `cat /proc/self/mountinfo | grep proc`and look at the optional fields or `findmnt -a -o +PROPAGATION`. The output of the latter in the root namespace contains:
+
+TARGET                        SOURCE                      FSTYPE   OPTIONS                                                             PROPAGATION
+/                             /dev/mapper/ubuntu--vg-root ext4    rw,relatime,errors=remount-ro                                          shared
+|-/proc                       proc                        proc    rw,nosuid,nodev,noexec,relatime                                        shared
+
+Launching a new bash process in a new PID and mount namespace using `sudo unshare -p -f -m bash` creates a copy of the mount list of the initial namespace and marks all the mount points as private in the new namespace, as the output of `findmnt -a -o +PROPAGATION` shows:
+
+TARGET                        SOURCE                      FSTYPE   OPTIONS                                                             PROPAGATION
+/                             /dev/mapper/ubuntu--vg-root ext4    rw,relatime,errors=remount-ro                                          private
+|-/proc                       proc                        proc    rw,nosuid,nodev,noexec,relatime                                        private
+
+Therefore, mounting the /proc filesystem for the new PID namespace in this new mount namespace will not affect the mount visible to processes in the host PID namespace (since it's a mount event under the new mount at "/" which is PRIVATE). Inside the new namespace, we can run `mount -t proc proc /proc` to mount the proc pseudo-filesystem. The /proc contents seen by processes in the initial PID namespace don't change after the mount, which means we have achieved our goal of not making the mount visible.
+
+When the proc pseudo-filesystem is mounted in the /proc directory, the output of lsns in the new namespace is:
+
+        NS TYPE   NPROCS PID USER COMMAND
+4026531835 cgroup      2   1 root bash
+4026531837 user        2   1 root bash
+4026531838 uts         2   1 root bash
+4026531839 ipc         2   1 root bash
+4026531992 net         2   1 root bash
+4026532417 mnt         2   1 root bash
+4026532418 pid         2   1 root bash
+
+When it is mounted in the /tmp/foo directory, the output of lsns in the new namespace is:
+
+        NS TYPE   NPROCS    PID USER             COMMAND
+4026531835 cgroup    195      1 root             /lib/systemd/systemd --system --deserialize 18
+4026531836 pid       193      1 root             /lib/systemd/systemd --system --deserialize 18
+4026531837 user      193      1 root             /lib/systemd/systemd --system --deserialize 18
+4026531838 uts       192      1 root             /lib/systemd/systemd --system --deserialize 18
+4026531839 ipc       195      1 root             /lib/systemd/systemd --system --deserialize 18
+4026531840 mnt       182      1 root             /lib/systemd/systemd --system --deserialize 18
+4026531860 mnt         1     15 root             kdevtmpfs
+4026531992 net       193      1 root             /lib/systemd/systemd --system --deserialize 18
+4026532343 mnt         1  41958 root             /lib/systemd/systemd-udevd
+4026532344 uts         1  41958 root             /lib/systemd/systemd-udevd
+4026532345 mnt         1  44872 systemd-timesync /lib/systemd/systemd-timesyncd
+4026532346 uts         1  44872 systemd-timesync /lib/systemd/systemd-timesyncd
+4026532347 mnt         1  44739 systemd-network  /lib/systemd/systemd-networkd
+4026532348 mnt         1  44765 systemd-resolve  /lib/systemd/systemd-resolved
+4026532359 uts         1 187697 root             /lib/systemd/systemd-logind
+4026532360 mnt         1 187697 root             /lib/systemd/systemd-logind
+4026532362 net         1  36772 uuidd            /usr/sbin/uuidd --socket-activation
+4026532417 mnt         3 311215 root             unshare -p -f -m bash
+4026532418 pid         2 311216 root             bash
+4026532471 mnt         1 188099 root             /usr/lib/upower/upowerd
+4026532472 user        1 188099 root             /usr/lib/upower/upowerd
+4026532475 mnt         1  36772 uuidd            /usr/sbin/uuidd --socket-activation
+4026532476 user        1  36772 uuidd            /usr/sbin/uuidd --socket-activation
+4026532477 net         1 188116 rtkit            /usr/libexec/rtkit-daemon
+4026532541 mnt         1 188137 root             /usr/sbin/ModemManager
+4026532654 mnt         1 188351 colord           /usr/libexec/colord
+
+The second output is exactly the same output as one gets when running `sudo lsns` in the initial PID namespace. The reason is that `lsns` (and many other commands like `ps`) reads information directly from the /proc filesystem, i.e., it assumes that the /proc directory contains subdirectories for all processes running in the PID namespace. When the proc pseudo-filesystem is mounted at a non-standard path like "/tmp/foo", `lsns` does not know that and still reads information from the "/proc" path. Since the proc pseudo-fileystem from the initial PID namespace is mounted at this path, the output is the same as one would get when running this command in the initial PID namespace.
+
+==========================
+
+B. Bootstrap a container from a root image (see provided rootfs.tar and unarchiver img.c)  and achieve file system isolation within a particular directory where the root image is mounted. Do not mount it on /tmp or its sub-directories.
+
+This means
+
+(i) the container shell process should be in its own mount namespace, and the rootfs should be bind mounted to a specific directory in the root mount namespace.
+(ii) The root of the container should be the rootfs directory and the host filesystem should not be accessible.
+
+
+Extend this container:
+(i) Make this container writable.
+(ii) Instead of execing a user supplied command, write a simple init program that changes the command prompt, forks a child, and the child runs an interactive bash.
+
+
+Answer the following questions:
+(i) How would you extend the container to not expose the old filesystem with a umount?
+(iv) If you start two such containers in two such terminals how much space will you use?
+
+ANSWER:
+==================
+
+See files in folder `code/q1b`, mainly `container.c`. To compile, run `gcc -o container container.c error_functions.c`. To execute, run `sudo ./container <rootForContainerSrc> <rootForContainerDest> <promptForContainer>` where
+
+- rootForContainerSrc is the path to the root filesystem image for the container, i.e., the path where `rootfs.tar` has been extracted. I used "/home/baadalvm/maverick-home/hws/hw4/code/q1b/rootfs".
+- rootForContainerDest is the path where the src will be bound-mounted, and this will become the root directory for the container. For example, I used the path "/home/baadalvm/maverick-home/hws/hw4/code/q1b/rootForContainer1".
+- promptForContainer is the shell prompt for the interactive bash child run inside the container. I used "maverick@container1> ".
+
+The container process is inside new User, UTS, PID and Mount namespaces. The uid,gid mappings and setgroups settings are done by the parent. None of the mount events in the new namespace propagate back to the parent since I set the propagation type of new mount points to MS_SLAVE. I have also made the propagation type of new mount points MS_SHARED after (meaning they are slave+shared) so that if new mount namespaces are created within the container the mount events propagate to its children. Further, I have used pivot_root to make sure that the old filesystem cannot be exposed with a umount. I have also mounted the proc pseudo-filesystem in the new root directory.
+
+(i) This feature is present in my `container.c` file. The idea is to use `pivot_root()` to change the root directory and mount the old root filesystem inside that directory, then unmount it to forget the old root filesystem completely.
+
+(iv) If I start two such containers, if they have the same rootForContainerSrc, then they will share the same underlying root filesystem (which may be bind-mounted at different points for the two). Then the space used will be approximately the same as one. But then the changes made by one to the filesystem will be visible to the other. If we want to prevent this from happening we will need to create two copies of the rootfs filesystem, one for each container. So double the space will be taken.
+
+==================
+
+PROBLEM 2 'mount'
+==================
+
+Consider the following commands:
+
+	mount --bind /smt /smt
+	mount --make-shared /smt
+	mount --bind /smt /tmp
+	mount --move /tmp /smt/1
+
+Without executing these commands think and write down what should be the list of files/directories in
+/smt, /smt/1, and /smt/1/1. Are all or any two identical? Explain what you see.
+
+Note: Answering this question by executing the command sequence is easy. However, it will not help you in the final exam.
+So read up the documentation of mount and think what should be the answer before blindly running the commands.
+
+ANSWER:
+==================
+
+The first command will create a bind-mount at /smt to itself, the second will ensure that it is shared. The third will bind-mount /smt to /tmp. The fourth command will fail, with the error "bad option; moving a mount residing under a shared mount is unsupported.". So the result will be that both /smt and /tmp have only one directory, namely 1/. This directory is empty, so /smt/1/1 doesn't exist. The "Move (MS_MOVE) semantics" in the man page for mount_namespaces says that moving a mount residing under a shared mount is invalid. I think the reason for this is that if it were valid, then the MOVE event would need to be propagated to the mount points in the parent's shared peer group. But since the path to which the move is being done is specific to this mount point (for e.g., /smt/1 may not even be a valid path at other mount points in the shared peer group of /).
+
+If I run these commands in a new mount namespace where all the mount points are private, then the behaviour is that /smt/1 has one directory, namely 1/. And this directory also has a 1/ directory, which is empty. So the tree goes
+
+/smt [Mount-Point] [shared]
+└── 1 [Mount-Point] [shared]
+    └── 1 [Mount-Point] [shared]
+        └── 1
+
+3 directories, 0 files
+
+The reason for this is, when we move the /tmp bind mount to /smt/1, it is a bind mount for:
+
+/smt [Mount-Point] [shared]
+└── 1
+1 directory, 0 files
+
+Now when this structure is moved to /smt/1, that path also becomes a mount-point. This is a mount event under "/smt", which is a shared mount-point in the same peer group as the bind mount which was at /tmp, so it is propagated, creating the /smt/1/1 mount-point. The last directory listing is because /smt/1/1/ is a bind-mount of /smt, which has one directory 1/ (the recursion stops at this level).
+
+==================
+
+PROBLEM 3 'Docker'
+==================
+
+For this problem you must have Docker installed. The objective is to determine how much the size of an image is changing when modifying an image by adding and deleting a file. For this run the following commands where <name> is your chosen name and <ContainerID> is the ID provided by docker:
+
+$ docker image ls
+$ docker run -it --name <name> centos:latest /bin/bash
+$ yum install git
+$ docker commit <Container ID> <image name>  # added image
+$ docker image ls  #to see if there are any differences in the size
+$ docker run -it --name <name> centos:latest /bin/bash
+$ yum remove git
+$ docker commit <Container ID> <image name>  #removed image
+$ docker images
+
+(i) Report on the findings about the image size--is it increasing or decreasing, and if so, why?
+
+(ii) Show the files that are different across images
+
+(iii) Learn how to use the Docker export command, and export the contents of the container into my container.tar.
+Now, look at the contents of the file with the following command:
+
+tar -tvf mycontainer.tar | less
+
+As the answer to this exercise, please (1) report how many files are in the container (e.g., by piping tar -tvf mycontainer.tar into the wc wordcount utility), then (2) report the size of the container (i.e., the size of the exported tar file). Please also (3) say how that compares to the size of the original image as reported by Docker in (i).
+
+ANSWER:
+===================
+
+Note: On baadalvm, I had to change docker's proxy settings, add environment variables to the container and edit /etc/yum.repos.d/CentOS-* files to be able to create the container and install git.
+
+(i) Initially, just after freshly pulling a centos:latest image, the output of `sudo docker image ls -a` is:
+
+REPOSITORY   TAG       IMAGE ID       CREATED         SIZE
+centos       latest    5d0da3dc9764   14 months ago   231MB
+
+So the centos:latest image provided by DockerHub is of size 231MB. After running `yum install git` in the new container and committing the container to a new image named "q3_image", the `sudo docker ls -a` command gives:
+
+REPOSITORY   TAG       IMAGE ID       CREATED          SIZE
+q3_image     latest    329286698850   16 seconds ago   360MB
+centos       latest    5d0da3dc9764   14 months ago    231MB
+
+The size of the image has increased. This is because each docker container consists of a read-writeable layer on top of some read-only layers. The read-only layer consisted of the centos image, and then when I installed git, the changes I made to the filesystem formed the read-write layer on top of it. Both these layers together form the container so the size has naturally increased. The layers can be viewed using `sudo docker history q3_image` which shows
+
+IMAGE          CREATED         CREATED BY                                      SIZE      COMMENT
+329286698850   5 minutes ago   /bin/bash                                       128MB
+5d0da3dc9764   14 months ago   /bin/sh -c #(nop)  CMD ["/bin/bash"]            0B
+<missing>      14 months ago   /bin/sh -c #(nop)  LABEL org.label-schema.sc…   0B
+<missing>      14 months ago   /bin/sh -c #(nop) ADD file:805cb5e15fb6e0bb0…   231MB
+
+The top-most is the git install, and the bottom most is the centos image.
+
+(ii) I ran `sudo docker diff q3 | less` (q3 was the name of the container) to see the list of files that the container changed. A sample portion of the output is:
+
+C /usr/libexec
+A /usr/libexec/git-core
+A /usr/libexec/git-core/git-merge-octopus
+A /usr/libexec/git-core/git-unpack-file
+A /usr/libexec/git-core/git-rm
+A /usr/libexec/git-core/git-verify-pack
+A /usr/libexec/git-core/git-diff-tree
+A /usr/libexec/git-core/git-fetch
+A /usr/libexec/git-core/git-read-tree
+A /usr/libexec/git-core/git-reflog
+A /usr/libexec/git-core/git-remote
+A /usr/libexec/git-core/git-sh-i18n--envsubst
+A /usr/libexec/git-core/git-show-index
+A /usr/libexec/git-core/git-stash
+A /usr/libexec/git-core/git-commit-graph
+A /usr/libexec/git-core/git-fmt-merge-msg
+A /usr/libexec/git-core/git-index-pack
+A /usr/libexec/git-core/git-mailinfo
+A /usr/libexec/git-core/git-mv
+A /usr/libexec/git-core/git-pull
+
+It also included the libraries required by git like
+
+A /usr/lib64/perl5/Tie
+A /usr/lib64/perl5/Tie/Hash
+A /usr/lib64/perl5/Tie/Hash/NamedCapture.pm
+A /usr/lib64/perl5/stddef.ph
+A /usr/lib64/perl5/Config_git.pl
+A /usr/lib64/perl5/DynaLoader.pm
+A /usr/lib64/perl5/PerlIO
+A /usr/lib64/perl5/PerlIO/scalar.pm
+A /usr/lib64/perl5/PerlIO/via.pm
+A /usr/lib64/perl5/PerlIO/encoding.pm
+A /usr/lib64/perl5/PerlIO/mmap.pm
+A /usr/lib64/perl5/Sys
+A /usr/lib64/perl5/Sys/Hostname.pm
+A /usr/lib64/perl5/B
+A /usr/lib64/perl5/B/Concise.pm
+A /usr/lib64/perl5/B/Showlex.pm
+A /usr/lib64/perl5/B/Terse.pm
+A /usr/lib64/perl5/B/Xref.pm
+A /usr/lib64/perl5/IO
+A /usr/lib64/perl5/IO/Seekable.pm
+
+Apart from this there were package manager-related files like /var/cache/dnf/appstream.solv etc. An alternative way to do the diff is to use [this](https://github.com/GoogleContainerTools/container-diff) tool which can compare two arbitrary images.
+
+(iii)
+
+(1) There are 14154 files in the container.
+
+(2) The size of the exported tar file is 341 MB.
+
+(3) The size of the centos image reported by Docker was 231 MB and after adding the read-write layer, the size of the q3_image image reported by Docker was 360MB. The size of the tar file is close to this but slightly smaller, because `docker export <container>` exports only the container filesystem (without image history and docker metadata), whereas `docker save <image>`, for example, saves the whole image with history and metadata.
+
+===================
+
+PROBLEM 4
+===================
+
+Look at the man page for lsns (list namespaces).  Implement a very simplified sort of lsns.  This will be a new source file which you will create.  It should take a PID and return the inode numbers of the namespaces associated with that PID.  The readlink() function may be useful. Exact output formatting is up to you.
+
+Submit lsns.c and any other data/program used to demonstrate behavior of lsns.c
+
+ANSWER
+===================
+
+See file `code/q4/lsns.c`. To test, you can run `./lsns $(echo $$)` to see the namespaces which the bash process is in. I got the following output:
+
+List of namespaces for process 333346
+mnt		---->		mnt:[4026531840]
+net		---->		net:[4026531992]
+pid		---->		pid:[4026531836]
+uts		---->		uts:[4026531838]
+ipc		---->		ipc:[4026531839]
+user		---->		user:[4026531837]
+cgroup		---->		cgroup:[4026531835]
+
+Now I ran `unshare -Ur -u /bin/sh` and then ran `./lsns $(echo $$)` inside the sh shell. The output was:
+
+List of namespaces for process 335108
+mnt		---->		mnt:[4026531840]
+net		---->		net:[4026531992]
+pid		---->		pid:[4026531836]
+uts		---->		uts:[4026532419]
+ipc		---->		ipc:[4026531839]
+user		---->		user:[4026532417]
+cgroup		---->		cgroup:[4026531835]
+
+One can see that only the user and uts namespace inodes differ between the bash shell and the unshared process.
+
+After exiting from the previous shell, I also ran `unshare -Ur -m -p --mount-proc -f /bin/sh` and then ran `./lsns $(echo $$)` inside the sh shell. The output was:
+
+List of namespaces for process 1
+mnt		---->		mnt:[4026532419]
+net		---->		net:[4026531992]
+pid		---->		pid:[4026532420]
+uts		---->		uts:[4026531838]
+ipc		---->		ipc:[4026531839]
+user		---->		user:[4026532417]
+cgroup		---->		cgroup:[4026531835]
+
+We can see that the mnt,pid and user namespaces are different. Also, the process ID passed to lsns was 1 in this case, which corresponds to the entry for it inside the /proc filesystem in the new namespace. This reveals one requirement, the pid passed to lsns should be such that the entry is there in the /proc filesystem and different pids may be needed in different pid namespaces.
+
+===================
+
+PROBLEM 5
+===================
+
+Set up the child namespace in PROBLEM 1 with a configured amount of memory it will use, the cpu_percent it can use, and an additional mount point 'mypoint'.
+
+Preferable set up a data structure that will read in this information from command line, set it up and then pass to the child.
+
+
+Please submit the modified program and some sample numbers of memory use, cpu_percent use, and mount point specification.
+
+ANSWER:
+==================
+
+See files in `code/q5/` folder. To compile, run `gcc -o container container.c error_functions.c`. To run the container,
+
+`sudo ./container <rootForContainerSrc> <rootForContainerDest> <promptForContainer> <memForContainer> <cpuForContainer>`
+
+ where the first 3 parameters are the same as in q1b, memForContainer is the memory limit in bytes, cpuForContainer is the percentage of cpu usage allowed. In the code, I create new cpuacct and memory control groups named "mycgrp", place the container process in them, and write the limits specified by the command line. I also mount a temporary filesystem at the new mount-point "/mypoint".
+
+ To test this, I ran an infinite loop in the bash shell opened when the container starts, i.e, `while (true) do :; done`. Note that the process id of the cloned child is printed by my program, and by running `pstree -p PID` in another terminal you can see its children (which will have the bash shell that's running an infinite loop). Then you can run `top -p <BASH-PID>` to see the cpu usage. As I changed the command line argument, the cpu usage of the infinite loop changed proportionally. To test memory limits, you can do `</dev/zero head -c BYTES | tail` and see the value at which the process will run out of memory. For testing the mount-point specification, running `mount` will show you the new mount-point called "mypoint".
+
+==================
+
+PROBLEM 6 (Bonus)
+==================
+Extend your container constructed in Problem 1 further with the following options:
+
+1. Extend functionality to include network setup. Run 2 containers and demonstrate an example of network connectivity.
+2. Extend functionality to include IPC connections. Instantiate a FIFO queue between two processes within a container or across two containers.
+3. Introduce the concept of dockerfiles within the container.
+
